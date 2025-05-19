@@ -42,7 +42,7 @@
                                    qicen,  sicen,        &
                                    Tsfcn,  alvl,         &
                                    apnd,   hpnd,  ipnd,  &
-                                   meltsliqn)
+                                   meltsliqn, pump_amnt) ! Lee: Added pump_amnt variable
 
       real (kind=dbl_kind), intent(in) :: &
          dt          ! time step (s)
@@ -62,7 +62,7 @@
          meltsliqn   ! liquid contribution to meltponds in dt (kg/m^2)
 
       real (kind=dbl_kind), intent(inout) :: &
-         apnd, hpnd, ipnd
+         apnd, hpnd, ipnd, pump_amnt ! Lee: Added pump_amnt variable
 
       real (kind=dbl_kind), dimension (:), intent(in) :: &
          qicen, &  ! ice layer enthalpy (J m-3)
@@ -129,6 +129,7 @@
             hpondn = c0
             volpn  = c0
             hlid = c0
+            pump_amnt = c0 ! Lee: Addition to stop problems in ponds with pumping
 
          else
 
@@ -187,8 +188,8 @@
                dvn = dvn - dhlid*alid*rhoi/rhofresh
             endif
 
-            volpn = volpn + dvn
-
+            ! Lee: removed for next line (volpn = volpn + dvn)
+            volpn = volpn + pump_amnt*rfrac ! Lee: Added 
             !-----------------------------------------------------------
             ! update pond area and depth
             !-----------------------------------------------------------
