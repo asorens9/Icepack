@@ -10,7 +10,7 @@
 
       use icepack_parameters, only: c0, c1, c2, c4, p5, pi, puny, Tocnfrz
       use icepack_parameters, only: cp_ocn, cp_ice, rhoi, rhos, Tffresh, TTTice, qqqice
-      use icepack_parameters, only: stefan_boltzmann, emissivity, Lfresh, Tsmelt
+      use icepack_parameters, only: stefan_boltzmann, emissivity, Lfresh, Tsmelt, Tocnfrz
       use icepack_parameters, only: saltmax, min_salin, depressT
       use icepack_parameters, only: ktherm, tfrz_option
       use icepack_parameters, only: calc_Tsfc
@@ -36,7 +36,8 @@
                 icepack_snow_temperature, &
                 icepack_liquidus_temperature, &
                 icepack_sea_freezing_temperature, &
-                adjust_enthalpy
+                adjust_enthalpy, &
+                pond_freeze_temp
 
       real (kind=dbl_kind), parameter, public :: &
          ferrmax = 1.0e-3_dbl_kind    ! max allowed energy flux error (W m-2)
@@ -574,6 +575,20 @@
       endif
 
       end subroutine adjust_enthalpy
+
+!=======================================================================
+
+      function pond_freeze_temp(spond) result(Tp)
+
+        real(kind=dbl_kind), intent(in) :: spond
+        real(kind=dbl_kind) :: sss = 35
+        real(kind=dbl_kind) :: Tp
+
+        character(len=*),parameter :: subname='(pond_freeze_temp)'
+
+        Tp = -((Tocnfrz / sss) * spond)
+
+      end function pond_freeze_temp
 
 !=======================================================================
 
