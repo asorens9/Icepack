@@ -22,6 +22,7 @@
       use icepack_tracers,    only: nilyr
       use icepack_warnings, only: warnstr, icepack_warnings_add
       use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
+      use icepack_therm_shared, only: pond_freeze_temp !Lee addition to allow for accurate computing
 
       implicit none
 
@@ -42,7 +43,7 @@
                                    qicen,  sicen,        &
                                    Tsfcn,  alvl,         &
                                    apnd,   hpnd,  ipnd,  &
-                                   meltsliqn, pump_amnt) ! Lee: Added pump_amnt variable
+                                   meltsliqn, pump_amnt, Spond) ! Lee: Added pump_amnt and Spond variables
 
       real (kind=dbl_kind), intent(in) :: &
          dt          ! time step (s)
@@ -69,7 +70,8 @@
          sicen     ! salinity (ppt)
 
       real (kind=dbl_kind), intent(in) :: &
-         dhs       ! depth difference for snow on sea ice and pond ice
+         dhs, &       ! depth difference for snow on sea ice and pond ice
+         Spond        ! Lee: pond Salinity
 
       real (kind=dbl_kind), intent(out) :: &
          ffrac     ! fraction of fsurfn over pond used to melt ipond
@@ -164,9 +166,10 @@
                hlid = ipnd
                if (dvn == c0) then ! freeze pond
                   Ts = Tair - Tffresh
-                  if (Ts < c0) then
+                  Tp = pond_freeze_temp(Spond) ! Lee: addition
+                  if (Ts < Tp) then ! Lee: Addition
                      ! if (Ts < -c2) then ! as in meltpond_cesm
-                     bdt = -c2*Ts*kice*dt/(rhoi*Lfresh)
+                     bdt = c2*(Tp - Ts)*kice*dt/(rhoi*Lfresh) ! Lee: Addition
                      dhlid = p5*sqrt(bdt)                  ! open water freezing
                      if (hlid > dhlid) dhlid = p5*bdt/hlid ! existing ice
                      dhlid = min(dhlid, hpnd*rhofresh/rhoi)
