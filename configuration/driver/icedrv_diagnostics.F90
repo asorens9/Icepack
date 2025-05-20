@@ -8,9 +8,9 @@
 
       use icedrv_kinds
       use icedrv_constants, only: nu_diag, nu_diag_out
-      use icedrv_domain_size, only: nx
+      use icedrv_domain_size, only: nx, ncat
       use icedrv_domain_size, only: ncat, nfsd, n_iso, nilyr, nslyr
-      use icepack_intfc, only: c0
+      use icepack_intfc, only: c0, c1
       use icepack_intfc, only: icepack_warnings_flush, icepack_warnings_aborted
       use icepack_intfc, only: icepack_query_parameters
       use icepack_intfc, only: icepack_query_tracer_flags, icepack_query_tracer_indices
@@ -63,9 +63,9 @@
       use icedrv_flux, only: evap, fsnow, frazil
       use icedrv_flux, only: fswabs, flw, flwout, fsens, fsurf, flat
       use icedrv_flux, only: frain, fiso_evap, fiso_ocn, fiso_atm
-      use icedrv_flux, only: Tair, Qa, fsw, fcondtop
+      use icedrv_flux, only: Tair, Qa, fsw, fcondtop, fcondbot
       use icedrv_flux, only: meltt, meltb, meltl, snoice
-      use icedrv_flux, only: dsnow, congel, sst, sss, Tf, fhocn
+      use icedrv_flux, only: dsnow, congel, sst, sss, Tf, fhocn, albpnd, pump_amnt
       use icedrv_state, only: aice, vice, vsno, trcr, trcrn, aicen, vsnon
 
       real (kind=dbl_kind), intent(in) :: &
@@ -74,7 +74,7 @@
       ! local variables
 
       integer (kind=int_kind) :: &
-         n, nc, k
+         n, i
 
       logical (kind=log_kind) :: &
          calc_Tsfc, snwgrain
@@ -86,18 +86,18 @@
       real (kind=dbl_kind) :: &
          pTair, pfsnow, pfrain, &
          paice, hiavg, hsavg, hbravg, psalt, pTsfc, &
-         pevap, pfhocn, fsdavg, &
+         pevap, pfhocn, hpnd, apnd, spnd, darcyavg, hocnavg, perm_harmavg, &
          rsnwavg, rhosavg, smicetot, smliqtot, smtot
 
       real (kind=dbl_kind), dimension (nx) :: &
-         work1, work2, work3
+         work1, work2, work3, work4, work5, work6
 
       real (kind=dbl_kind) :: &
-         Tffresh, rhos, rhow, rhoi
+         Tffresh, rhos, rhow, rhoi, ice_mass
 
       logical (kind=log_kind) :: tr_brine, tr_fsd, tr_iso, tr_snow
-      integer (kind=int_kind) :: nt_fbri, nt_Tsfc, nt_fsd, nt_isosno, nt_isoice
-      integer (kind=int_kind) :: nt_rsnw, nt_rhos, nt_smice, nt_smliq
+      integer (kind=int_kind) :: nt_fbri, nt_Tsfc, nt_fsd, nt_isosno, nt_isoice, nt_apnd
+      integer (kind=int_kind) :: nt_rsnw, nt_rhos, nt_smice, nt_smliq, nt_hpnd
 
       character(len=*), parameter :: subname='(runtime_diags)'
 
@@ -112,7 +112,7 @@
       call icepack_query_tracer_indices(nt_fbri_out=nt_fbri, nt_Tsfc_out=nt_Tsfc,&
            nt_fsd_out=nt_fsd, nt_isosno_out=nt_isosno, nt_isoice_out=nt_isoice, &
            nt_rsnw_out=nt_rsnw, nt_rhos_out=nt_rhos, &
-           nt_smice_out=nt_smice, nt_smliq_out=nt_smliq)
+           nt_smice_out=nt_smice, nt_smliq_out=nt_smliq, nt_hpnd_out=nt_hpnd, nt_apnd_out=nt_apnd)
       call icepack_query_parameters(Tffresh_out=Tffresh, rhos_out=rhos, &
            rhow_out=rhow, rhoi_out=rhoi)
       call icepack_warnings_flush(nu_diag)
@@ -125,6 +125,10 @@
 
       call total_energy (work1)
       call total_salt   (work2)
+      call total_darcy  (work3)
+      call total_spond  (work4)
+      call total_hocn   (work5)
+      call total_perm_harm(work6)
 
       do n = 1, nx
         pTair = Tair(n) - Tffresh ! air temperature
@@ -142,6 +146,10 @@
         smliqtot = c0             ! total mass of liquid in snow (kg/m2)
         smtot = c0                ! total mass of snow volume (kg/m2)
         psalt = c0
+        spnd = c0
+        darcyavg = c0
+        hocnavg = c0
+        perm_harmavg = c0
         if (paice /= c0) then
            hiavg = vice(n)/paice
            hsavg = vsno(n)/paice
@@ -174,14 +182,23 @@
            end if
 
         endif
-        if (vice(n) /= c0) psalt = work2(n)/vice(n)
+        if (vice(n) /= c0) then 
+          psalt = work2(n)/vice(n)
+          darcyavg = work3(n) / vice(n)
+          spnd = work4(n) / vice(n)
+          hocnavg = work5(n) / vice(n)
+          perm_harmavg = work6(n) / vice(n)
+        endif /= c0) psalt = work2(n)/vice(n)
         pTsfc = trcr(n,nt_Tsfc)   ! ice/snow sfc temperature
         pevap = evap(n)*dt/rhoi   ! sublimation/condensation
         pdhi(n) = vice(n) - pdhi(n)  ! ice thickness change
         pdhs(n) = vsno(n) - pdhs(n)  ! snow thickness change
         pde(n) =-(work1(n)- pde(n))/dt ! ice/snow energy change
         pfhocn = -fhocn(n)        ! ocean heat used by ice
+        hpnd = trcr(n, nt_hpnd)
+        apnd = trcr(n, nt_apnd)
 
+        ice_mass = hocnavg*rhow - hpnd*apnd*rhow - rhos*vsno(n)
         work3(:) = c0
 
         do k = 1, n_iso
@@ -205,7 +222,9 @@
         if (.not.calc_Tsfc) then
           write(nu_diag_out+n-1,900) 'total surface heat flux= ', fsurf(n)
           write(nu_diag_out+n-1,900) 'top sfc conductive flux= ',fcondtop(n)
+          write(nu_diag_out+n-1,900) 'bot  conductive flux   = ',fcondbot(n)
           write(nu_diag_out+n-1,900) 'latent heat flux       = ',flat(n)
+          write(nu_diag_out+n-1,900) 'bot  conductive flux   = ',fcondbot(n)
         else
           write(nu_diag_out+n-1,900) 'shortwave radiation sum= ',fsw(n)
           write(nu_diag_out+n-1,900) 'longwave radiation     = ',flw(n)
@@ -237,6 +256,15 @@
         write(nu_diag_out+n-1,900) 'effective dhi (m)      = ',pdhi(n)   ! ice thickness change
         write(nu_diag_out+n-1,900) 'effective dhs (m)      = ',pdhs(n)   ! snow thickness change
         write(nu_diag_out+n-1,900) 'intnl enrgy chng(W/m^2)= ',pde (n)   ! ice/snow energy change
+        write(nu_diag_out+n-1,900) 'pond height (m)        = ',hpnd
+        write(nu_diag_out+n-1,900) 'melt mond area fraction= ',apnd
+        write(nu_diag_out+n-1,900) 'pond salinity (ppt)    = ',spnd
+        write(nu_diag_out+n-1,900) 'darcy speed (+down m/s)= ',darcyavg
+        write(nu_diag_out+n-1,900) 'ocean height (m)       = ',hocnavg
+        write(nu_diag_out+n-1,900) 'ice mass (kg m-2)      = ',ice_mass
+        write(nu_diag_out+n-1,900) 'ice permeability (m2)  = ',perm_harmavg
+        write(nu_diag_out+n-1,900) 'pond albedo            = ',albpnd(n)
+        write(nu_diag_out+n-1,900) 'pump amount (m)        = ',pump_amnt(n)
 
         if (tr_snow) then
            if (trim(snwredist) /= 'none') then
@@ -420,7 +448,172 @@
          enddo                  ! n
 
       end subroutine total_salt
+!=======================================================================
 
+! Computes darcy velocity in a grid cell.
+
+      subroutine total_darcy (work)
+
+      use icedrv_domain_size, only: ncat, nx
+      use icedrv_state, only: vicen, darcy
+
+      real (kind=dbl_kind), dimension (nx),  &
+         intent(out) :: &
+         work      ! total darcy
+
+      ! local variables
+
+      integer (kind=int_kind) :: &
+        i, n
+
+      integer (kind=int_kind) :: nt_sice
+
+      character(len=*), parameter :: subname='(total_darcy)'
+
+      !-----------------------------------------------------------------
+      ! Initialize
+      !-----------------------------------------------------------------
+
+         work(:) = c0
+
+      !-----------------------------------------------------------------
+      ! Aggregate
+      !-----------------------------------------------------------------
+
+         do n = 1, ncat
+           do i = 1, nx
+              work(i) = work(i) &
+                      + darcy(i,n) &
+                      * vicen(i,n)
+           enddo            ! i
+         enddo               ! k
+
+      end subroutine total_darcy
+
+!=======================================================================
+
+! Computes total pond salinity in a grid cell.
+
+      subroutine total_spond (work)
+
+      use icedrv_domain_size, only: ncat, nx
+      use icedrv_state, only: vicen, Spond
+
+      real (kind=dbl_kind), dimension (nx),  &
+         intent(out) :: &
+         work      ! total spond
+
+      ! local variables
+
+      integer (kind=int_kind) :: &
+        i, n
+
+      integer (kind=int_kind) :: nt_sice
+
+      character(len=*), parameter :: subname='(total_spond)'
+
+      !-----------------------------------------------------------------
+      ! Initialize
+      !-----------------------------------------------------------------
+
+         work(:) = c0
+
+      !-----------------------------------------------------------------
+      ! Aggregate
+      !-----------------------------------------------------------------
+
+         do n = 1, ncat
+           do i = 1, nx
+              work(i) = work(i) &
+                      + Spond(i,n) &
+                      * vicen(i,n)
+           enddo            ! i
+         enddo               ! k
+
+      end subroutine total_spond
+
+!=======================================================================
+
+! Computes total ocean height.
+
+      subroutine total_hocn (work)
+
+      use icedrv_domain_size, only: ncat, nx
+      use icedrv_state, only: vicen, hocn
+
+      real (kind=dbl_kind), dimension (nx),  &
+         intent(out) :: &
+         work      ! total spond
+
+      ! local variables
+
+      integer (kind=int_kind) :: &
+        i, n
+
+      integer (kind=int_kind) :: nt_sice
+
+      character(len=*), parameter :: subname='(total_hocn)'
+
+      !-----------------------------------------------------------------
+      ! Initialize
+      !-----------------------------------------------------------------
+
+         work(:) = c0
+
+      !-----------------------------------------------------------------
+      ! Aggregate
+      !-----------------------------------------------------------------
+
+         do n = 1, ncat
+           do i = 1, nx
+              work(i) = work(i) &
+                      + hocn(i,n) &
+                      * vicen(i,n)
+           enddo            ! i
+         enddo               ! k
+
+      end subroutine total_hocn
+
+
+!=======================================================================
+
+! Computes total ocean height.
+
+      subroutine total_perm_harm (work)
+
+      use icedrv_domain_size, only: ncat, nx
+      use icedrv_state, only: vicen, perm_harm
+
+      real (kind=dbl_kind), dimension (nx),  &
+         intent(out) :: &
+         work      ! total spond
+
+      ! local variables
+
+      integer (kind=int_kind) :: &
+        i, n
+
+      character(len=*), parameter :: subname='(total_perm_harm)'
+
+      !-----------------------------------------------------------------
+      ! Initialize
+      !-----------------------------------------------------------------
+
+         work(:) = c0
+
+      !-----------------------------------------------------------------
+      ! Aggregate
+      !-----------------------------------------------------------------
+
+         do n = 1, ncat
+           do i = 1, nx
+              work(i) = work(i) &
+                      + perm_harm(i,n) &
+                      * vicen(i,n)
+           enddo            ! i
+         enddo               ! k
+
+      end subroutine total_perm_harm
 !=======================================================================
 !
 ! Wrapper for the print_state debugging routine.
