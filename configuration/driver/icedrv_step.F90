@@ -111,7 +111,7 @@
       use icedrv_arrays_column, only: fswsfcn, fswintn, Sswabsn, Iswabsn
       use icedrv_arrays_column, only: fswthrun, fswthrun_vdr, fswthrun_vdf, fswthrun_idr, fswthrun_idf
       use icedrv_arrays_column, only: meltsliqn, meltsliq
-      use icedrv_calendar, only: yday
+      use icedrv_calendar, only: yday, time
       use icedrv_domain_size, only: ncat, nilyr, nslyr, n_aero, n_iso, nfsd, nx
       use icedrv_flux, only: frzmlt, sst, Tf, strocnxT, strocnyT, rsiden, wlat, &
                              fbot, Tbot, Tsnice
@@ -119,7 +119,7 @@
       use icedrv_flux, only: wind, rhoa, potT, Qa, Qa_iso, zlvl, strax, stray, flatn
       use icedrv_flux, only: fsensn, fsurfn, fcondtopn, fcondbotn
       use icedrv_flux, only: flw, fsnow, fpond, sss, mlt_onset, frz_onset, fsloss
-      use icedrv_flux, only: frain, Tair, strairxT, strairyT, fsurf
+      use icedrv_flux, only: frain, Tair, strairxT, strairyT, fsurf, pump_amnt
       use icedrv_flux, only: fcondtop, fcondbot, fsens, fresh, fsalt, fhocn
       use icedrv_flux, only: flat, fswabs, flwout, evap, evaps, evapi
       use icedrv_flux, only: Tref, Qref, Qref_iso, Uref
@@ -131,7 +131,7 @@
       use icedrv_flux, only: HDO_ocn, H2_16O_ocn, H2_18O_ocn
       use icedrv_init, only: lmask_n, lmask_s
       use icedrv_state, only: aice, aicen, aice_init, aicen_init, vicen_init
-      use icedrv_state, only: vice, vicen, vsno, vsnon, trcrn, uvel, vvel, vsnon_init
+      use icedrv_state, only: vice, vicen, vsno, vsnon, trcrn, uvel, vvel, vsnon_init, Spond, darcy, hocn, perm_harm
 
       ! column packge includes
       use icepack_intfc, only: icepack_step_therm1
@@ -373,7 +373,7 @@
             afsdn         = trcrn       (i,nt_fsd:nt_fsd+nfsd-1,:), &
             lmask_n  = lmask_n(i),    lmask_s   = lmask_s(i),     &
             mlt_onset=mlt_onset(i),   frz_onset = frz_onset(i),   &
-            yday = yday,  prescribed_ice = prescribed_ice)
+            yday = yday,  prescribed_ice = prescribed_ice, time, Spond(i,:), pump_amnt(i), darcy(i, :), hocn(i, :), perm_harm(i, :))
 
         if (tr_aero) then
           do n = 1, ncat
