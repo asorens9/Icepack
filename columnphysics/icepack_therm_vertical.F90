@@ -42,13 +42,13 @@
       use icepack_therm_shared, only: calculate_tin_from_qin, Tmin
       use icepack_therm_shared, only: adjust_enthalpy
       use icepack_therm_bl99,   only: temperature_changes
-      use icepack_therm_mushy,  only: temperature_changes_salinity
+      use icepack_therm_mushy,  only: temperature_changes_salinity, permeability
 
       use icepack_warnings, only: warnstr, icepack_warnings_add
       use icepack_warnings, only: icepack_warnings_setabort, icepack_warnings_aborted
 
       use icepack_mushy_physics, only: icepack_mushy_temperature_mush
-      use icepack_mushy_physics, only: liquidus_temperature_mush
+      use icepack_mushy_physics, only: liquidus_temperature_mush, liquidus_brine_salinity_mush, liquid_fraction
       use icepack_mushy_physics, only: icepack_enthalpy_mush, enthalpy_of_melting
       use icepack_mushy_physics, only: enthalpy_mush_liquid_fraction, enthalpy_brine
 
@@ -107,7 +107,9 @@
                                   congel,      snoice,    &
                                   mlt_onset,   frz_onset, &
                                   yday,        dsnow,     &
-                                  prescribed_ice)
+                                  prescribed_ice, time, n,&
+                                  Spond, darcy, pump_amnt,&
+                                  hocn, perm_harm)
 
       real (kind=dbl_kind), intent(in) :: &
          dt      , & ! time step
@@ -121,9 +123,14 @@
 
       ! tracers
       real (kind=dbl_kind), intent(inout) :: &
-         Tsf     , & ! ice/snow top surface temp, same as Tsfcn (deg C)
-         apond   , & ! melt pond area fraction of category
-         hpond       ! melt pond depth (m)
+         Tsf       , & ! ice/snow top surface temp, same as Tsfcn (deg C)
+         apond     , & ! melt pond area fraction
+         hpond     , & ! melt pond depth (m)
+         Spond     , & ! melt pond salinity
+         pump_amnt , & ! Amount of water pumped (m)
+         hocn      , & ! ocean surface height above ice base  (m)
+         perm_harm , & ! harmonic mean of ice permeability    (m2)
+         darcy       ! vertical flushing Darcy velocity (m/s)
 !        iage        ! ice age (s)
 
       logical (kind=log_kind), intent(in), optional :: &
@@ -202,14 +209,17 @@
          frz_onset    ! day of year that freezing begins (congel or frazil)
 
       real (kind=dbl_kind), intent(in) :: &
-         yday         ! day of year
+         yday, &         ! day of year
+         time 
 
       ! local variables
 
       integer (kind=int_kind) :: &
-         k               ! ice layer index
+          k, permeable, coldenough, negdsbr               ! ice layer index
+      
 
       real (kind=dbl_kind) :: &
+         vpond0      , & ! Volume of pond before rain and pumping
          dhi         , & ! change in ice thickness
          dhs             ! change in snow thickness
 
@@ -226,6 +236,9 @@
 
       real (kind=dbl_kind), dimension (nilyr) :: &
          zTin            ! internal ice layer temperatures
+
+      integer (kind=int_kind), intent(in) :: &
+         n
 
       real (kind=dbl_kind), dimension (nslyr) :: &
          zTsn            ! internal snow layer temperatures
@@ -306,6 +319,7 @@
       !-----------------------------------------------------------------
 
          if (ktherm == 2) then
+            vpond0 = hpond * apond * aicen
 
             call temperature_changes_salinity(dt,                   &
                                               rhoa,      flw,       &
@@ -324,7 +338,12 @@
                                               flwoutn,   fsurfn,    &
                                               fcondtopn, fcondbotn, &
                                               fadvocn,   snoice,    &
-                                              smice,     smliq)
+                                              smice,     smliq,     &
+                                              Spond,     darcy,     &
+                                              hocn,      perm_harm)
+            ! The last thing to happen was to flush the pond so we must adjust
+            ! the pond salinity.
+            Spond = calc_spond(aicen, hpond, apond, vpond0, c0, sss, Spond)
             if (icepack_warnings_aborted(subname)) return
 
          else ! ktherm
@@ -2201,7 +2220,8 @@
                                     lmask_n     , lmask_s     , &
                                     mlt_onset   , frz_onset   , &
                                     yday        , prescribed_ice, &
-                                    zlvs        , afsdn)
+                                    zlvs        , afsdn,        &
+                                    time, Spond, pump_amnt, darcy, hocn, perm_harm)
 
       real (kind=dbl_kind), intent(in) :: &
          dt          , & ! time step
@@ -2209,7 +2229,8 @@
          vvel        , & ! y-component of velocity              (m/s)
          strax       , & ! wind stress components             (N/m^2)
          stray       , & !
-         yday            ! day of year
+         yday        , & ! day of year
+         time
 
       logical (kind=log_kind), intent(in) :: &
          lmask_n     , & ! northern hemisphere mask
@@ -2232,6 +2253,7 @@
          rhoa        , & ! air density                       (kg/m^3)
          frain       , & ! rainfall rate                   (kg/m^2 s)
          fsnow       , & ! snowfall rate                   (kg/m^2 s)
+         pump_amnt   , & ! amount of pumped water (m^3)
          fpond       , & ! fresh water flux to ponds       (kg/m^2/s)
          fresh       , & ! fresh water flux to ocean       (kg/m^2/s)
          fsalt       , & ! salt flux to ocean              (kg/m^2/s)
@@ -2330,6 +2352,10 @@
          aicen_init  , & ! fractional area of ice
          vicen_init  , & ! volume per unit area of ice            (m)
          vsnon_init  , & ! volume per unit area of snow           (m)
+         Spond       , & ! melt pond salinity (sst)
+         darcy       , & ! vertical flushing Darcy velocity (m/s)
+         hocn        , & ! ocean surface height above ice base  (m)
+         perm_harm   , & ! harmonic mean of ice permeability    (m2)
          aicen       , & ! concentration of ice
          vicen       , & ! volume per unit area of ice            (m)
          vsnon       , & ! volume per unit area of snow           (m)
@@ -2420,6 +2446,7 @@
          Qrefn       , & ! air sp hum reference level         (kg/kg)
          shcoef      , & ! transfer coefficient for sensible heat
          lhcoef      , & ! transfer coefficient for latent heat
+         vpond0      , & ! Volume of pond before rain and pumping
          rfrac           ! water fraction retained for melt ponds
 
       real (kind=dbl_kind), dimension(nslyr,ncat) :: &
@@ -2739,7 +2766,10 @@
                                  congel=congeln  (n), snoice=snoicen      (n), &
                                  mlt_onset=mlt_onset, frz_onset=frz_onset    , &
                                  yday=yday,           dsnow=l_dsnown         , &
-                                 prescribed_ice=prescribed_ice)
+                                 prescribed_ice=prescribed_ice, &
+                                 Spond(n), darcy(n),         &
+                                 pump_amnt, hocn(n),         &
+                                 perm_harm(n))
 
             if (icepack_warnings_aborted(subname)) then
                write(warnstr,*) subname, ' ice: Vertical thermo error, cat ', n
@@ -2830,7 +2860,7 @@
 
          !call ice_timer_start(timer_ponds)
          if (tr_pond) then
-
+            vpond0 = hpnd(n) * apnd(n) * aicen(n)
             if (tr_pond_lvl) then
                rfrac = rfracmin + (rfracmax-rfracmin) * aicen(n)
                call compute_ponds_lvl (dt=dt,            &
@@ -2852,6 +2882,7 @@
                                        apnd=apnd    (n), &
                                        hpnd=hpnd    (n), &
                                        ipnd=ipnd    (n), &
+                                       pump_amnt,        &
                                        meltsliqn=l_meltsliqn(n))
                if (icepack_warnings_aborted(subname)) return
 
@@ -2880,6 +2911,7 @@
                   fpond = fpond + pond * aicen(n) ! m
                endif ! aicen_init
             endif
+         Spond(n) = calc_spond(aicen(n), hpnd(n), apnd(n), vpond0, pump_amnt, sss, Spond(n))
 
          endif ! tr_pond
          !call ice_timer_stop(timer_ponds)
@@ -3007,6 +3039,78 @@
 
 !=======================================================================
 
+function calc_spond(aicen, hpond, apond, vpond0, pump_amnt, sss, Spond) result(Spond_out)
+
+        ! Determine the salinity of the pond from pumping sea water
+
+        real (kind=dbl_kind), intent(in) :: &
+           aicen   , & ! concentration of ice
+           apond   , & ! melt pond area fraction
+           hpond   , & ! melt pond depth (m)
+           sss     , & ! ocean salinity (ppt)
+           pump_amnt, & ! Amount of water pumped to the surface (m)
+           vpond0      ! melt pond volume before changes
+
+        real (kind=dbl_kind), intent(in) :: &
+           Spond       ! melt pond salinity (ppt)
+
+        real (kind=dbl_kind) :: &
+           Spond_out       ! melt pond salinity (ppt)
+
+        real(kind=dbl_kind) :: &
+           vpond       ! volume pond (m^3)
+
+        character(len=*),parameter :: subname='(calc_spond)'
+
+        vpond = hpond * apond * aicen
+        if (vpond > puny) then
+          ! There is melt pond and the salinities have to mix
+          if (pump_amnt > c0) then
+            ! Pumping occurred
+            if (vpond0 > puny) then
+              if (vpond < vpond0) then
+                ! Pumping occurred but not a lot so pond water froze or flushed
+                ! more than what was added. In this case, we take the salinity
+                ! to stay the same
+                Spond_out = Spond
+              else
+                ! pumped onto existing melt pond. Mix the salinities. For
+                ! simplicity, we assume that all the extra water was from
+                ! pumping
+                Spond_out = (vpond0 * Spond + (vpond - vpond0)*sss)/vpond
+              endif
+            else
+              ! If pumping occurred when there as no melt pond then the salinity
+              ! is that of the sea
+              Spond_out = sss
+            endif
+          else
+            ! No pumping so just adjusting salinity to match with any lost or
+            ! new fresh water
+            if (vpond0 > puny) then
+              if (vpond < vpond0) then
+                ! Lost pond water so the salinity stays the same
+                Spond_out = Spond
+              else
+                ! We take fresh water to have no salinity
+                Spond_out = (vpond0 * Spond)/vpond
+              endif
+            else
+              ! We take fresh water to have no salinity
+              Spond_out = c0
+            endif
+          endif
+        else
+          ! No melt pond so no melt pond salinity
+          Spond_out = c0
+        endif
+
+      ! Salinity should never be negative
+      ! if (Spond < c0) Spond = c0
+
+      end function calc_spond
+
+!=======================================================================
       end module icepack_therm_vertical
 
 !=======================================================================
