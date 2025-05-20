@@ -43,9 +43,13 @@
       !-----------------------------------------------------------------
 
       real (kind=dbl_kind), dimension(nx), public :: &
-         aice  , & ! concentration of ice
-         vice  , & ! volume per unit area of ice          (m)
-         vsno      ! volume per unit area of snow         (m)
+         aicen      , & ! concentration of ice
+         vicen      , & ! volume per unit area of ice          (m)
+         vsnon      , & ! volume per unit area of snow         (m)
+         Spond      , & ! Salinity of the pond water           (ppt)
+         hocn       , & ! ocean surface height above ice base  (m)
+         perm_harm  , & ! harmonic mean of ice permeability    (m2)
+         darcy          ! darcy velocity                       (m/s)
 
       real (kind=dbl_kind), dimension(nx,max_ntrcr), public :: &
          trcr      ! ice tracers
