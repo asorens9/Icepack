@@ -115,7 +115,8 @@
 
       real (kind=dbl_kind), dimension (nx), public :: &
          frain   , & ! rainfall rate (kg/m^2 s)
-         fsnow       ! snowfall rate (kg/m^2 s)
+         fsnow   , & ! snowfall rate (kg/m^2 s)
+         pump_amnt   ! amount of pumped water (m^3) 
 
        ! in from ocean
 
@@ -440,6 +441,7 @@
          swidf (:) = c0              ! shortwave radiation (W/m^2)
          flw   (:) = c180            ! incoming longwave rad (W/m^2)
          frain (:) = c0              ! rainfall rate (kg/m2/s)
+         pump_amnt (:) = c0           ! amount of pumped water (m^3)
          do n = 1, ncat              ! conductive heat flux (W/m^2)
             fcondtopn_f(:,n) = fcondtopn_d(n)
          enddo
@@ -457,6 +459,7 @@
          swidf (:) = 50._dbl_kind    ! shortwave radiation (W/m^2)
          flw   (:) = 280.0_dbl_kind  ! incoming longwave rad (W/m^2)
          frain (:) = c0              ! rainfall rate (kg/m2/s)
+         pump_amnt (:) = c0           ! amount of pumped water (m^3)
          do n = 1, ncat                   ! surface heat flux (W/m^2)
             fsurfn_f(:,n) = fsurfn_d(n)
          enddo
@@ -474,6 +477,7 @@
          swidf (:) = 25._dbl_kind    ! shortwave radiation (W/m^2)
          flw   (:) = 230.0_dbl_kind  ! incoming longwave rad (W/m^2)
          frain (:) = c0              ! rainfall rate (kg/m2/s)
+         pump_amnt (:) = c0           ! amount of pumped water (m^3)
          do n = 1, ncat                   ! surface heat flux (W/m^2)
             fsurfn_f(:,n) = fsurfn_d(n)
          enddo
