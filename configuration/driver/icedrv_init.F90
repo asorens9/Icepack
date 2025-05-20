@@ -83,6 +83,7 @@
       use icedrv_forcing, only: oceanmixed_ice, restore_ocn, trestore
       use icedrv_forcing, only: snw_ssp_table, lateral_flux_type
       use icedrv_forcing, only: precalc_forc
+      use icedrv_forcing, only: pump_start, pump_end, pump_amnt, pump_repeats
 
       ! local variables
 
@@ -208,7 +209,9 @@
         tr_aero,      &
         tr_fsd,       &
         tr_iso
-
+      
+      namelist /custom_nml/ &
+        pump_start,      pump_end, pump_amnt, pump_repeats
       !-----------------------------------------------------------------
       ! query Icepack values
       !-----------------------------------------------------------------
@@ -320,6 +323,13 @@
       tr_aero      = .false. ! aerosols
       tr_fsd       = .false. ! floe size distribution
       tr_iso       = .false. ! isotopes
+
+
+      ! Custom Input
+      pump_start = -1
+      pump_end = 17521
+      pump_amnt = 0.3
+      pump_repeats = 1
 
       !-----------------------------------------------------------------
       ! read from input file
@@ -436,7 +446,9 @@
          call icedrv_system_abort(string=subname//'ERROR: snow_nml reading ', &
             file=__FILE__, line=__LINE__)
       endif
-
+         print*,'Reading custom_nml'
+         read(nu_nml, nml=custom_nml,iostat=nml_error)
+         if (nml_error /= 0) exit
       write(nu_diag,*) subname,' Reading forcing_nml'
       rewind(unit=nu_nml, iostat=nml_error)
       if (nml_error /= 0) then
