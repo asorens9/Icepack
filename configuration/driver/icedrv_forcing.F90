@@ -9,7 +9,7 @@
       use icedrv_kinds
       use icedrv_domain_size, only: nx
       use icedrv_calendar, only: time, nyr, dayyr, mday, month, secday
-      use icedrv_calendar, only: daymo, daycal, dt, yday, sec
+      use icedrv_calendar, only: daymo, daycal, dt, yday, sec, days_per_year
       use icedrv_calendar, only: npt, use_leap_years, time0, year_init
       use icedrv_constants, only: nu_diag, nu_forcing, nu_open_clos
       use icedrv_constants, only: c0, c1, c2, c10, c100, p5, c4, c24
@@ -20,7 +20,7 @@
       use icedrv_system, only: icedrv_system_abort
       use icedrv_flux, only: zlvl, Tair, potT, rhoa, uatm, vatm, wind, &
          strax, stray, fsw, swvdr, swvdf, swidr, swidf, Qa, flw, frain, &
-         fsnow, sst, sss, uocn, vocn, qdp, hmix, Tf, opening, closing, sstdat
+         fsnow, sst, sss, uocn, vocn, qdp, hmix, Tf, opening, closing, sstdat, pump_amnt
 #ifdef USE_NETCDF
       use netcdf
 #endif
@@ -70,6 +70,7 @@
            open_data(:), &
            clos_data(:)
 
+
       real (kind=dbl_kind), dimension(nx) :: &
           sst_temp
 
@@ -108,6 +109,17 @@
       character (len=char_len_long), public :: &
          snw_ssp_table      ! snow table type 'test', 'snicar'
 
+      integer (kind=int_kind), public :: &
+         pump_start, &    ! day to start pumping water
+         pump_end, &      ! day to stop pumping water
+         pump_repeats, &  ! Number of times to repeat
+         pump_start_nt, & ! time step to start pumping
+         pump_end_nt      ! time step to end pumping
+
+      real (kind=dbl_kind), public :: & 
+         pump_amnt        ! How much preciptation equivalence
+
+
 !=======================================================================
 
       contains
@@ -137,7 +149,7 @@
             ' default ocean', file=__FILE__,line=__LINE__)
          ntime = npt
       else
-         ntime = 8760
+         ntime = 43800
       endif
       allocate(fsw_data(ntime), cldf_data(ntime), fsnow_data(ntime), &
                Tair_data(ntime), uatm_data(ntime), vatm_data(ntime), &
@@ -155,6 +167,10 @@
 
       write (nu_diag,*) ' Initial forcing data year = ',fyear_init
       write (nu_diag,*) ' Final   forcing data year = ',fyear_final
+      
+      pump_start_nt = pump_start * 24
+      pump_end_nt = pump_end * 24
+
 
      !-------------------------------------------------------------------
      ! Initialize forcing data to default values
@@ -192,8 +208,10 @@
       if (trim(atm_data_type(1:4)) == 'clim')  call atm_climatological
       if (trim(atm_data_type(1:5)) == 'ISPOL') call atm_ISPOL
       if (trim(atm_data_type(1:4)) == 'NICE')  call atm_NICE
+      if (trim(atm_data_type(1:6)) == 'thesis')  call atm_thesis
       if (trim(atm_data_type(1:3)) == 'MDF')   call atm_MDF
       if (trim(ocn_data_type(1:5)) == 'SHEBA') call ice_open_clos
+      if (trim(ocn_data_type(1:6)) == 'thesis')  call ice_open_clos
 
       if (restore_ocn) then
         if (trestore == 0) then
@@ -208,6 +226,7 @@
 
       if (trim(ocn_data_type(1:5)) == 'ISPOL') call ocn_ISPOL
       if (trim(ocn_data_type(1:4)) == 'NICE')  call ocn_NICE
+      if (trim(ocn_data_type(1:6)) == 'thesis')  call ocn_thesis
       if (trim(ocn_data_type(1:3)) == 'MDF') call ocn_MDF
 
       call prepare_forcing (Tair_data,     fsw_data,      &
@@ -352,6 +371,53 @@
             swvdf(:) = c1intp * swvdf_data(mlast) + c2intp * swvdf_data(mnext)
             swidr(:) = c1intp * swidr_data(mlast) + c2intp * swidr_data(mnext)
             swidf(:) = c1intp * swidf_data(mlast) + c2intp * swidf_data(mnext)
+      elseif (trim(atm_data_type) == 'thesis') then
+        offndy = 0                              ! first data record (Julian day)
+        offset = real(offndy,dbl_kind)*secday
+        dataloc = 1                             ! data located at middle of interval
+        maxrec = 730
+        recslot = 2
+        recnum = mod(int(yday)+maxrec-offndy-1,maxrec)+1
+        mlast = mod(recnum+maxrec-2,maxrec) + 1
+        mnext = mod(recnum-1,       maxrec) + 1
+        call interp_coeff (recnum, recslot, secday, dataloc, &
+                           c1intp, c2intp, offset)
+
+         ! Daily Data
+         ! Tair (:) = c1intp *  Tair_data(mlast) + c2intp *  Tair_data(mnext)
+         ! Qa   (:) = c1intp *    Qa_data(mlast) + c2intp *    Qa_data(mnext)
+         ! uatm (:) = c1intp *  uatm_data(mlast) + c2intp *  uatm_data(mnext)
+         ! vatm (:) = c1intp *  vatm_data(mlast) + c2intp *  vatm_data(mnext)
+         ! fsnow(:) = c1intp * fsnow_data(mlast) + c2intp * fsnow_data(mnext)
+         ! flw  (:) = c1intp *   flw_data(mlast) + c2intp *   flw_data(mnext)
+         ! fsw  (:) = c1intp *   fsw_data(mlast) + c2intp *   fsw_data(mnext)
+         ! potT (:) = c1intp *  potT_data(mlast) + c2intp *  potT_data(mnext)
+         ! wind (:) = c1intp *  wind_data(mlast) + c2intp *  wind_data(mnext)
+         ! swvdr(:) = c1intp * swvdr_data(mlast) + c2intp * swvdr_data(mnext)
+         ! swvdf(:) = c1intp * swvdf_data(mlast) + c2intp * swvdf_data(mnext)
+         ! swidr(:) = c1intp * swidr_data(mlast) + c2intp * swidr_data(mnext)
+         ! swidf(:) = c1intp * swidf_data(mlast) + c2intp * swidf_data(mnext)
+         ! frain(:) = c1intp * frain_data(mlast) + c2intp * frain_data(mnext)
+         ! strax(:) = c1intp * strax_data(mlast) + c2intp * strax_data(mnext)
+         ! stray(:) = c1intp * stray_data(mlast) + c2intp * stray_data(mnext)
+         ! rhoa (:) = c1intp *  rhoa_data(mlast) + c2intp *  rhoa_data(mnext)
+         Tair (:) =  Tair_data(timestep)
+         Qa   (:) =    Qa_data(timestep)
+         uatm (:) =  uatm_data(timestep)
+         vatm (:) =  vatm_data(timestep)
+         fsnow(:) = fsnow_data(timestep)
+         flw  (:) =   flw_data(timestep)
+         fsw  (:) =   fsw_data(timestep)
+         potT (:) =  potT_data(timestep)
+         wind (:) =  wind_data(timestep)
+         swvdr(:) = swvdr_data(timestep)
+         swvdf(:) = swvdf_data(timestep)
+         swidr(:) = swidr_data(timestep)
+         swidf(:) = swidf_data(timestep)
+         frain(:) = frain_data(timestep)
+         strax(:) = strax_data(timestep)
+         stray(:) = stray_data(timestep)
+         rhoa (:) =  rhoa_data(timestep)
 
          elseif (trim(atm_data_type) == 'ISPOL') then
 
@@ -488,6 +554,52 @@
          qdp     (:) = c1intp *  qdp_data(mlast) + c2intp *  qdp_data(mnext)
          hmix    (:) = c1intp * hmix_data(mlast) + c2intp * hmix_data(mnext)
 
+         elseif (trim(ocn_data_type) == 'thesis') then
+
+         ! midmonth = 15  ! assume data is given on 15th of every month
+         ! recslot = 1                             ! latter half of month
+         ! if (mday < midmonth) recslot = 2        ! first half of month
+         ! if (recslot == 1) then
+         !    mlast = month
+         !    mnext = mod(month   ,12) + 1
+         ! else ! recslot = 2
+         !    mlast = mod(month+10,12) + 1
+         !    mnext = month
+         ! endif
+         ! call interp_coeff_monthly(recslot, c1intp, c2intp)
+
+         ! sst_temp(:) = c1intp *  sst_data(mlast) + c2intp *  sst_data(mnext)
+         ! sss     (:) = c1intp *  sss_data(mlast) + c2intp *  sss_data(mnext)
+         ! uocn    (:) = c1intp * uocn_data(mlast) + c2intp * uocn_data(mnext)
+         ! vocn    (:) = c1intp * vocn_data(mlast) + c2intp * vocn_data(mnext)
+         ! hmix    (:) = c1intp * hmix_data(mlast) + c2intp * hmix_data(mnext)
+
+         ! ! qdp needs to be interpolated daily
+         ! dataloc = 2                          ! data located at end of interval
+         ! maxrec = 730
+         ! recslot = 2
+         ! recnum = int(yday)
+         ! mlast = mod(recnum+maxrec-2,maxrec) + 1
+         ! mnext = mod(recnum-1,       maxrec) + 1
+         ! call interp_coeff ( recnum, recslot, secday, dataloc, c1intp, c2intp)
+
+         ! qdp     (:) = c1intp *  qdp_data(mlast) + c2intp *  qdp_data(mnext)
+
+         sst_temp(:) = sst_data(timestep)
+         sss     (:) = sss_data(timestep)
+         uocn    (:) = uocn_data(timestep)
+         vocn    (:) = vocn_data(timestep)
+         hmix    (:) = hmix_data(timestep)
+         ! qdp needs to be interpolated daily
+         dataloc = 2                          ! data located at end of interval
+         maxrec = 730
+         recslot = 2
+         recnum = int(yday)
+         mlast = mod(recnum+maxrec-2,maxrec) + 1
+         mnext = mod(recnum-1,       maxrec) + 1
+         call interp_coeff ( recnum, recslot, secday, dataloc, c1intp, c2intp)
+         qdp     (:) = c1intp *  qdp_data(mlast) + c2intp *  qdp_data(mnext)
+
       else
 
          ! use default values for all other data fields
@@ -509,7 +621,7 @@
       call finish_ocn_forcing(sst_temp)
 
       ! Lindsay SHEBA open/close dataset is hourly
-      if (trim(ocn_data_type) == 'SHEBA') then
+      if (trim(ocn_data_type) == 'SHEBA' .or. trim(ocn_data_type) == 'thesis') then
 
         sec1hr = secday/c24                      ! seconds in 1 hour
         maxrec = ntime
@@ -654,6 +766,62 @@
 
 !=======================================================================
 
+      subroutine atm_thesis
+
+      integer (kind=int_kind) :: &
+         nt             ! loop index
+
+      real (kind=dbl_kind) :: &
+         dlwsfc,  &     ! downwelling longwave (W/m2)
+         dswsfc,  &     ! downwelling shortwave (W/m2)
+         windu10, &     ! wind components (m/s)
+         windv10, &     !
+         temp2m,  &     ! 2m air temperature (K)
+         spechum ,&     ! specific humidity (kg/kg)
+         precip         ! precipitation (kg/m2/s)
+
+      character (char_len_long) string1
+      character (char_len_long) filename
+      character(len=*), parameter :: subname='(atm_thesis)'
+
+!      atm_data_file = 'cfsv2_2015_220_70_01hr.txt'
+      filename = trim(data_dir)//'/THESIS/'//trim(atm_data_file)
+
+      write (nu_diag,*) 'Reading ',filename
+
+      open (nu_forcing, file=filename, form='formatted')
+
+      ! do nt = 1, days_per_year * 2 + 1
+      !     read (nu_forcing, *) dswsfc, dlwsfc, windu10, windv10, temp2m, spechum, precip
+
+      !     flw_data(nt) = dlwsfc
+      !     fsw_data(nt) = dswsfc
+      !     uatm_data(nt) = windu10
+      !     vatm_data(nt) = windv10
+      !     Tair_data(nt) = temp2m
+      !     potT_data(nt) = temp2m
+      !     Qa_data(nt) = spechum
+      !     fsnow_data(nt) = precip
+      ! enddo
+      do nt = 1, ntime
+          read (nu_forcing, *) dswsfc, dlwsfc, windu10, windv10, temp2m, spechum, precip
+
+          flw_data(nt) = dlwsfc
+          fsw_data(nt) = dswsfc
+          uatm_data(nt) = windu10
+          vatm_data(nt) = windv10
+          Tair_data(nt) = temp2m
+          potT_data(nt) = temp2m
+          Qa_data(nt) = spechum
+          fsnow_data(nt) = precip
+      enddo
+
+      close (nu_forcing)
+
+      end subroutine atm_thesis
+
+!=======================================================================
+
       subroutine prepare_forcing (Tair,     fsw,      &
                                   cldf,     &
                                   frain,    fsnow,    &
@@ -692,7 +860,7 @@
       ! local variables
 
       integer (kind=int_kind) :: &
-         nt
+         nt, i
 
       logical (kind=log_kind) :: &
          calc_strair
@@ -794,6 +962,13 @@
                 frain(nt) = fsnow(nt)
                 fsnow(nt) = c0
             endif
+! Artificially control rain
+            do i=1, pump_repeats
+              if  (nt >= pump_start_nt + (24 * 365 * (i - 1)) .and. &
+                   nt <= pump_end_nt + (24 * 365 * (i - 1))) then
+                frain(nt) = pump_amnt
+              endif
+            enddo
 !         endif
 
          if (calc_strair) then
@@ -1539,6 +1714,67 @@
       end do
 
     end subroutine ocn_ISPOL
+!=======================================================================
+
+    subroutine ocn_thesis
+
+      integer (kind=int_kind) :: &
+         i, n
+
+      real (kind=dbl_kind), dimension(365) :: &
+         t   , &  ! sea surface temperature
+         s   , &  ! sea surface salinity
+         hblt, &  ! mixed layer depth
+         u   , &  ! ocean current, x
+         v   , &  ! ocean current, y
+         dhdx, &  ! sea surface slope
+         dhdy, &  ! sea surface slope
+         qdp      ! deep ocean heat flux
+
+      character (char_len_long) filename
+      
+      character(len=*), parameter :: subname='(ocn_thesis)'
+
+      filename = trim(data_dir)//'/THESIS/'//trim(ocn_data_file)
+
+      write (nu_diag,*) 'Reading ',filename
+
+      open (nu_forcing, file=filename, form='formatted')
+
+      ! do i=1, 24
+      !   read(nu_forcing,*) sst_data(i), sss_data(i), hmix_data(i), uocn_data(i), vocn_data(i)
+      ! enddo
+      do i=1, ntime
+        read(nu_forcing,*) sst_data(i), sss_data(i), hmix_data(i), uocn_data(i), vocn_data(i)
+      enddo
+
+      close(nu_forcing)
+
+      !      ocn_data_file = 'oceanmixed_daily_3.txt'
+      filename = trim(data_dir)//'/NICE_2015/'//'oceanmixed_daily_3.txt'
+
+      write (nu_diag,*) 'Reading ',filename
+
+      open (nu_forcing, file=filename, form='formatted')
+
+      read(nu_forcing,*) t
+      read(nu_forcing,*) s
+      read(nu_forcing,*) hblt
+      read(nu_forcing,*) u
+      read(nu_forcing,*) v
+      read(nu_forcing,*) dhdx  ! not used for Icepack
+      read(nu_forcing,*) dhdy  ! not used for Icepack
+      read(nu_forcing,*) qdp
+
+      close(nu_forcing)
+
+      do n=0, 4
+        do i = 365 * n + 1, 365 * (n+1) ! daily
+           qdp_data (i) = qdp (i - 365 * n)
+        enddo
+      enddo
+
+      end subroutine ocn_thesis
 
 !=======================================================================
 
@@ -1672,7 +1908,7 @@
      subroutine ice_open_clos
 
 
-      integer (kind=int_kind) :: i
+      integer (kind=int_kind) :: i, n
 
       real (kind=dbl_kind) :: xtime
 
@@ -1683,11 +1919,13 @@
 
       write (nu_diag,*) 'Reading ',filename
 
-      open (nu_open_clos, file=filename, form='formatted')
-
       ! hourly data
-      do i=1,ntime
-         read(nu_open_clos,*) xtime, open_data(i), clos_data(i)
+do n=0, 4
+        open (nu_open_clos, file=filename, form='formatted')
+        do i=days_per_year * 24 * n + 1, days_per_year * 24 * (n + 1)
+           read(nu_open_clos,*) xtime, open_data(i), clos_data(i)
+        enddo
+        close(nu_open_clos)
       enddo
 
       close (nu_open_clos)
