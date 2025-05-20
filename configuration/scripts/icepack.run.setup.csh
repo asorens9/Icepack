@@ -45,7 +45,11 @@ cd \${ICE_RUNDIR}
 
 setenv OMP_NUM_THREADS ${nthrds}
 
-cp -f \${ICE_CASEDIR}/icepack_in \${ICE_RUNDIR}
+if (\$1 != "") then
+    cp -f \${ICE_CASEDIR}/\$1 \${ICE_RUNDIR}
+else
+    cp -f \${ICE_CASEDIR}/icepack_in \${ICE_RUNDIR}
+endif
 cp -f \${ICE_CASEDIR}/env.\${ICE_MACHCOMP} \${ICE_RUNDIR}
 cp -f \${ICE_CASEDIR}/icepack.settings \${ICE_RUNDIR}
 echo " "
