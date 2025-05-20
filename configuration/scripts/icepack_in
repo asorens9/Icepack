@@ -136,7 +136,7 @@
     bgc_data_type   = 'default'
     lateral_flux_type   = 'uniform_ice'
     fyear_init      = 2015
-    ycycle          = 1
+    ycycle          = 5
     data_dir        = '/Users/ftuser/Desktop/CICE-Consortium/ICEPACK_DATA/'
     atm_data_file   = 'unknown_atm_data_file'
     ocn_data_file   = 'unknown_ocn_data_file'
@@ -297,4 +297,9 @@
     F_abs_chl_phaeo    = 5.0
     ratio_C2N_proteins = 5.0
 /
-
+&custom_nml
+    pump_start         = 183
+    pump_end           = 183
+    pump_amnt          = .1
+    pump_repeats       = 1
+/
