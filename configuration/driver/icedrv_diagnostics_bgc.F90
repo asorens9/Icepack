@@ -39,6 +39,7 @@
       use icedrv_diagnostics, only: nx_names
       use icedrv_domain_size, only: nilyr
       use icedrv_state, only: aice, aicen, vicen, vice, trcr, trcrn
+      use icepack_mushy_physics, only: temperature_mush
 
       ! local variables
 
@@ -50,14 +51,15 @@
 
       integer (kind=int_kind) :: &
          nt_sice, &
-         nt_fbri
+         nt_fbri, &
+         nt_qice
 
       ! fields at diagnostic points
       real (kind=dbl_kind) :: &
          phinS, phinS1, pdarcy_V, pfbri
 
       real (kind=dbl_kind), dimension(nilyr) :: &
-         pSin, pSin1
+         pSin, pSin1, pqin
 
       character(len=*), parameter :: subname='(hbrine_diags)'
 
@@ -66,7 +68,7 @@
       !-----------------------------------------------------------------
 
          call icepack_query_parameters(ktherm_out=ktherm)
-         call icepack_query_tracer_indices(nt_sice_out=nt_sice, nt_fbri_out=nt_fbri)
+         call icepack_query_tracer_indices(nt_sice_out=nt_sice, nt_fbri_out=nt_fbri, nt_qice_out=nt_qice)
          call icepack_warnings_flush(nu_diag)
          if (icepack_warnings_aborted()) call icedrv_system_abort(string=subname, &
              file=__FILE__,line= __LINE__)
@@ -86,6 +88,7 @@
             do k = 1 , nilyr
                pSin (k) = trcr (n,nt_sice+k-1  )
                pSin1(k) = trcrn(n,nt_sice+k-1,1)
+               pqin (k) = trcr (n,nt_qice+k-1  )
             enddo
 
       !-----------------------------------------------------------------
@@ -109,6 +112,10 @@
             write(nu_diag_out+n-1,803) 'Sice bulk S (ppt) '
             write(nu_diag_out+n-1,*) '---------------------------------------------------'
             write(nu_diag_out+n-1,802) (pSin(k), k = 1,nilyr)
+            write(nu_diag_out+n-1,*) '                         '
+            write(nu_diag_out+n-1,803) 'Sice Temperature (C) '
+            write(nu_diag_out+n-1,*) '---------------------------------------------------'
+            write(nu_diag_out+n-1,802) (temperature_mush(pqin(k),pSin(k)), k = 1,nilyr)
             write(nu_diag_out+n-1,*) '                         '
          endif
       enddo ! nx
