@@ -9,7 +9,7 @@
 
       use icedrv_kinds
       use icedrv_domain_size, only: nx
-      use icedrv_calendar, only: secday
+      use icedrv_calendar, only: secday, month
       use icedrv_constants, only: nu_forcing, nu_diag
       use icepack_intfc, only: icepack_max_algae, icepack_max_doc
       use icepack_intfc, only: icepack_max_dic
@@ -37,8 +37,8 @@
         integer (kind=int_kind) :: &
            ntime, &
            i
-
-        real (kind=dbl_kind), dimension(365) :: &
+       
+        real (kind=dbl_kind) :: &
            sil, &
            nit
 
@@ -47,16 +47,21 @@
         character(len=*), parameter :: subname='(init_forcing_bgc)'
 
         if (trim(bgc_data_type) == 'ISPOL' .or. &
-            trim(bgc_data_type) == 'NICE') then
+            trim(bgc_data_type) == 'NICE' .or. &
+            trim(bgc_data_type) == 'thesis') then
+
 
            if (trim(bgc_data_type) == 'ISPOL') &
            filename = trim(data_dir)//'/ISPOL_2004/'//trim(bgc_data_file)
            if (trim(bgc_data_type) == 'NICE') &
            filename = trim(data_dir)//'/NICE_2015/'//trim(bgc_data_file)
+            if (trim(bgc_data_type) == 'thesis') &
+           filename = trim(data_dir)//'/thesis/'//trim(bgc_data_file)
+
 
           write (nu_diag,*) 'Reading ',filename
 
-          ntime = 365 ! daily
+          ntime = 60 ! monthly
 
           open (nu_forcing, file=filename, form='formatted')
           read (nu_forcing,*) sil
@@ -64,9 +69,11 @@
           close(nu_forcing)
 
           do i = 1, ntime
-             sil_data(i) = sil(i)
-             nit_data(i) = nit(i)
-          end do
+              read (nu_forcing, *) sil, nit
+
+              sil_data(i) = sil
+              nit_data(i) = nit
+          enddo
 
         end if
 
@@ -82,9 +89,9 @@
       subroutine get_forcing_bgc
 
       use icedrv_arrays_column, only: ocean_bio_all
-      use icedrv_calendar, only:  yday
+      use icedrv_calendar, only:  yday, mday
       use icedrv_flux, only: sil, nit
-      use icedrv_forcing, only: interp_coeff, bgc_data_type
+      use icedrv_forcing, only: interp_coeff, bgc_data_type, interp_coeff_monthly
 
       integer (kind=int_kind) :: &
          i,            & ! horizontal indices
@@ -94,7 +101,9 @@
          recnum      , & ! record number
          dataloc     , & ! = 1 for data located in middle of time interval
                          ! = 2 for date located at end of time interval
-         ks              ! bgc tracer index (bio_index_o)
+         ks          , & ! bgc tracer index (bio_index_o)
+         mlast, mnext, & ! indices of bracketing time slices  
+         midmonth         ! middle day of month       
 
       real (kind=dbl_kind) :: &
           c1intp, c2intp
@@ -140,7 +149,36 @@
            ks = 2*icepack_max_algae + icepack_max_doc + 7 + icepack_max_dic
            ocean_bio_all(i,ks) = nit(i)                       ! PON
         enddo
+ elseif (trim(bgc_data_type) == 'thesis') then
 
+        midmonth = 15  ! assume data is given on 15th of every month
+        recslot = 1                             ! latter half of month
+        if (mday < midmonth) recslot = 2        ! first half of month
+        if (recslot == 1) then
+          mlast = month
+          mnext = mod(month   ,12) + 1
+        else ! recslot = 2
+          mlast = mod(month+10,12) + 1
+          mnext = month
+        endif
+        call interp_coeff_monthly(recslot, c1intp, c2intp)
+                 
+        if (tr_bgc_Sil) then
+           sil(:) =  c1intp * sil_data(mlast) + c2intp * sil_data(mnext)
+        endif
+
+        if (tr_bgc_Nit) then
+           nit(:) =  c1intp * nit_data(mlast) + c2intp * nit_data(mnext)
+        endif
+
+        do i = 1, nx
+           ks = 2*icepack_max_algae + icepack_max_doc + 3 + icepack_max_dic
+           ocean_bio_all(i,ks) = sil(i)                       ! Sil
+           ks =   icepack_max_algae + 1
+           ocean_bio_all(i,ks) = nit(i)                       ! Nit
+           ks = 2*icepack_max_algae + icepack_max_doc + 7 + icepack_max_dic
+           ocean_bio_all(i,ks) = nit(i)                       ! PON
+        enddo
       endif
 
       end subroutine get_forcing_bgc
